@@ -1,0 +1,40 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // User Profile
+    match /users/{userId} {
+      // READ: User can read their own profile
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      // CREATE: User can create their profile (Cloud Function will sanitize 'plan' and 'AiCredits' to defaults)
+      allow create: if request.auth != null && request.auth.uid == userId;
+
+      // UPDATE: User can update profile (e.g. name, photo) BUT CANNOT change 'plan' or 'AiCredits'
+      // These fields are exclusively managed by Admin SDK (Cloud Functions)
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plan', 'AiCredits']);
+      
+      // DELETE: User can delete their own account/data if needed
+      allow delete: if request.auth != null && request.auth.uid == userId;
+      
+      // Expenses Subcollection
+      match /expenses/{expenseId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        
+        // CREATE: Enforce User Ownership & TERMS ACCEPTANCE
+        allow create: if request.auth != null && request.auth.uid == userId
+          && hasAcceptedTerms(userId);
+          
+        allow update, delete: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // Helper: Enforce Terms Acceptance
+    function hasAcceptedTerms(userId) {
+       let userDoc = get(/databases/$(database)/documents/users/$(userId)).data;
+       return userDoc.termsAccepted == true;
+    }
+  }
+}
